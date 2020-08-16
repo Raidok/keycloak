@@ -159,7 +159,8 @@ public class OAuth2DeviceAuthorizationEndpoint extends AuthorizationEndpointBase
             response.setVerificationUri(deviceUrl);
             response.setVerificationUriComplete(deviceUrl + "?user_code=" + response.getUserCode());
 
-            return Response.ok(JsonSerialization.writeValueAsBytes(response)).type(MediaType.APPLICATION_JSON_TYPE).build();
+            return cors.builder(Response.ok(response).type(MediaType.APPLICATION_JSON_TYPE))
+                    .allowedOrigins(session, client).build();
         } catch (Exception e) {
             throw new RuntimeException("Error creating OAuth 2.0 Device Authorization Response.", e);
         }
