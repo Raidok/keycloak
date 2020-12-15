@@ -28,6 +28,7 @@ import org.keycloak.admin.client.resource.ClientResource;
 import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.admin.client.resource.UsersResource;
+import org.keycloak.common.Profile;
 import org.keycloak.events.Details;
 import org.keycloak.events.Errors;
 import org.keycloak.representations.idm.ClientRepresentation;
@@ -39,6 +40,7 @@ import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.keycloak.testsuite.AbstractKeycloakTest;
 import org.keycloak.testsuite.Assert;
 import org.keycloak.testsuite.AssertEvents;
+import org.keycloak.testsuite.arquillian.annotation.DisableFeature;
 import org.keycloak.testsuite.pages.AppPage;
 import org.keycloak.testsuite.pages.ConsentPage;
 import org.keycloak.testsuite.pages.ErrorPage;
@@ -62,6 +64,7 @@ import org.keycloak.testsuite.util.OAuthClient.AuthorizationEndpointResponse;
 /**
  * @author <a href="mailto:mstrukel@redhat.com">Marko Strukelj</a>
  */
+@DisableFeature(value = Profile.Feature.ACCOUNT2, skipRestart = true) // TODO remove this (KEYCLOAK-16228)
 public class ConsentsTest extends AbstractKeycloakTest {
 
     final static String REALM_PROV_NAME = "provider";
@@ -97,7 +100,7 @@ public class ConsentsTest extends AbstractKeycloakTest {
 
     protected List<ClientRepresentation> createProviderClients() {
         ClientRepresentation client = new ClientRepresentation();
-        client.setId(CLIENT_ID);
+        client.setClientId(CLIENT_ID);
         client.setName(CLIENT_ID);
         client.setSecret(CLIENT_SECRET);
         client.setEnabled(true);

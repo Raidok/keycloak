@@ -25,10 +25,9 @@ import static org.keycloak.testsuite.admin.Users.getPasswordOf;
 import static org.keycloak.testsuite.admin.Users.setPasswordFor;
 import static org.keycloak.testsuite.auth.page.AuthRealm.DEMO;
 import static org.keycloak.testsuite.auth.page.AuthRealm.SAMLSERVLETDEMO;
-import static org.keycloak.testsuite.saml.AbstractSamlTest.REALM_PRIVATE_KEY;
-import static org.keycloak.testsuite.saml.AbstractSamlTest.REALM_PUBLIC_KEY;
 import static org.keycloak.testsuite.util.Matchers.bodyHC;
 import static org.keycloak.testsuite.util.Matchers.statusCodeIsHC;
+import static org.keycloak.testsuite.util.UIUtils.getRawPageSource;
 import static org.keycloak.testsuite.util.URLAssert.assertCurrentUrlStartsWith;
 import static org.keycloak.testsuite.util.WaitUtils.waitForPageToLoad;
 import static org.keycloak.testsuite.util.WaitUtils.waitUntilElement;
@@ -58,7 +57,6 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import javax.ws.rs.client.Client;
-import javax.ws.rs.client.ClientBuilder;
 import javax.ws.rs.client.Entity;
 import javax.ws.rs.client.Invocation;
 import javax.ws.rs.client.WebTarget;
@@ -121,16 +119,12 @@ import org.keycloak.keys.ImportedRsaKeyProviderFactory;
 import org.keycloak.keys.KeyProvider;
 import org.keycloak.protocol.saml.SamlConfigAttributes;
 import org.keycloak.protocol.saml.SamlProtocol;
-import org.keycloak.protocol.saml.mappers.AttributeStatementHelper;
-import org.keycloak.protocol.saml.mappers.RoleListMapper;
 import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.ComponentRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
-import org.keycloak.representations.idm.ProtocolMapperRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
-import org.keycloak.saml.SAML2ErrorResponseBuilder;
 import org.keycloak.saml.common.constants.JBossSAMLConstants;
 import org.keycloak.saml.common.constants.JBossSAMLURIConstants;
 import org.keycloak.saml.common.util.DocumentUtil;
@@ -142,6 +136,8 @@ import org.keycloak.services.resources.RealmsResource;
 import org.keycloak.testsuite.adapter.page.*;
 import org.keycloak.testsuite.admin.ApiUtil;
 import org.keycloak.testsuite.arquillian.annotation.AppServerContainer;
+import org.keycloak.testsuite.arquillian.annotation.AuthServerContainerExclude;
+import org.keycloak.testsuite.util.ServerURLs;
 import org.keycloak.testsuite.utils.arquillian.ContainerConstants;
 import org.keycloak.testsuite.auth.page.login.Login;
 import org.keycloak.testsuite.auth.page.login.SAMLIDPInitiatedLogin;
@@ -152,6 +148,7 @@ import org.keycloak.testsuite.saml.AbstractSamlTest;
 import org.keycloak.testsuite.updaters.ClientAttributeUpdater;
 import org.keycloak.testsuite.updaters.Creator;
 import org.keycloak.testsuite.updaters.UserAttributeUpdater;
+import org.keycloak.testsuite.util.AdminClientUtil;
 import org.keycloak.testsuite.util.SamlClient;
 import org.keycloak.testsuite.util.SamlClient.Binding;
 import org.keycloak.testsuite.util.SamlClientBuilder;
@@ -168,7 +165,6 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import org.xml.sax.SAXException;
-import static org.keycloak.testsuite.admin.ApiUtil.getCreatedId;
 
 /**
  * @author mhajas
@@ -784,14 +780,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
 
         ClientRepresentation clientRep = testRealmResource().convertClientDescription(IOUtil.documentToString(doc));
 
-        String appServerUrl;
-        if (Boolean.parseBoolean(System.getProperty("app.server.ssl.required"))) {
-            appServerUrl = "https://localhost:" + System.getProperty("app.server.https.port", "8543") + "/";
-        } else {
-            appServerUrl = "http://localhost:" + System.getProperty("app.server.http.port", "8280") + "/";
-        }
-
-        clientRep.setAdminUrl(appServerUrl + "sales-metadata/saml");
+        clientRep.setAdminUrl(ServerURLs.getAppServerContextRoot() + "/sales-metadata/saml");
 
         try (Response response = testRealmResource().clients().create(clientRep)) {
             Assert.assertEquals(201, response.getStatus());
@@ -1124,7 +1113,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
 
         // test unsecured POST KEYCLOAK-901
 
-        Client client = ClientBuilder.newClient();
+        Client client = AdminClientUtil.createResteasyClient();
         Form form = new Form();
         form.param("parameter", "hello");
         String text = client.target(inputPortalPage + "/unsecured").request().post(Entity.form(form), String.class);
@@ -1362,8 +1351,13 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
 
     @Test
     public void idpMetadataValidation() throws Exception {
-        driver.navigate().to(authServerPage.toString() + "/realms/" + SAMLSERVLETDEMO + "/protocol/saml/descriptor");
-        validateXMLWithSchema(driver.getPageSource(), "/adapter-test/keycloak-saml/metadata-schema/saml-schema-metadata-2.0.xsd");
+        try (CloseableHttpClient client = HttpClientBuilder.create().build()) {
+            HttpGet httpGet = new HttpGet(authServerPage.toString() + "/realms/" + SAMLSERVLETDEMO + "/protocol/saml/descriptor");
+            try (CloseableHttpResponse response = client.execute(httpGet)) {
+                String stringResponse = EntityUtils.toString(response.getEntity());
+                validateXMLWithSchema(stringResponse, "/adapter-test/keycloak-saml/metadata-schema/saml-schema-metadata-2.0.xsd");
+            }
+        }
     }
 
     @Test
@@ -1373,7 +1367,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
 
         driver.navigate().to(employeeDomServletPage.getUriBuilder().clone().path("getAssertionFromDocument").build().toURL());
         waitForPageToLoad();
-        String xml = driver.getPageSource();
+        String xml = getRawPageSource();
         Assert.assertNotEquals("", xml);
         Document doc = DocumentUtil.getDocument(new StringReader(xml));
         String certBase64 = DocumentUtil.getElement(doc, new QName("http://www.w3.org/2000/09/xmldsig#", "X509Certificate")).getTextContent();
@@ -1390,7 +1384,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
     public void spMetadataValidation() throws Exception {
         ClientResource clientResource = ApiUtil.findClientResourceByClientId(testRealmResource(), AbstractSamlTest.SAML_CLIENT_ID_SALES_POST_SIG);
         ClientRepresentation representation = clientResource.toRepresentation();
-        Client client = ClientBuilder.newClient();
+        Client client = AdminClientUtil.createResteasyClient();
         WebTarget target = client.target(authServerPage.toString() + "/admin/realms/" + SAMLSERVLETDEMO + "/clients/" + representation.getId() + "/installation/providers/saml-sp-descriptor");
         Response response = target.request().header(HttpHeaders.AUTHORIZATION, "Bearer " + adminClient.tokenManager().getAccessToken().getToken()).get();
         validateXMLWithSchema(response.readEntity(String.class), "/adapter-test/keycloak-saml/metadata-schema/saml-schema-metadata-2.0.xsd");
@@ -1535,7 +1529,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
     @Test
     /* KEYCLOAK-4980 */
     public void testAutodetectBearerOnly() throws Exception {
-        Client client = ClientBuilder.newClient();
+        Client client = AdminClientUtil.createResteasyClient();
 
         // Do not redirect client to login page if it's an XHR
         WebTarget target = client.target(salesPostAutodetectServletPage.toString() + "/");
@@ -1580,9 +1574,11 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
         client.close();
     }
 
+    @AuthServerContainerExclude(value = AuthServerContainerExclude.AuthServer.QUARKUS, details =
+            "Exclude Quarkus because when running on Java 9+ you get CNF exceptions due to the fact that javax.xml.soap was removed (as well as other JEE modules). Need to discuss how we are going to solve this for both main dist and Quarkus")
     @Test
     public void testSuccessfulEcpFlow() throws Exception {
-        Response authnRequestResponse = ClientBuilder.newClient().target(ecpSPPage.toString()).request()
+        Response authnRequestResponse = AdminClientUtil.createResteasyClient().target(ecpSPPage.toString()).request()
                 .header("Accept", "text/html; application/vnd.paos+xml")
                 .header("PAOS", "ver='urn:liberty:paos:2003-08' ;'urn:oasis:names:tc:SAML:2.0:profiles:SSO:ecp'")
                 .get();
@@ -1619,7 +1615,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
         String pair = username + ":" + password;
         String authHeader = "Basic " + Base64.encodeBytes(pair.getBytes());
 
-        Response authenticationResponse = ClientBuilder.newClient().target(singleSignOnService).request()
+        Response authenticationResponse = AdminClientUtil.createResteasyClient().target(singleSignOnService).request()
                 .header(HttpHeaders.AUTHORIZATION, authHeader)
                 .post(Entity.entity(DocumentUtil.asString(authenticationRequest), "text/xml"));
 
@@ -1655,12 +1651,12 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
 
         samlResponseRequest.writeTo(os);
 
-        Response serviceProviderFinalResponse = ClientBuilder.newClient().target(responseType.getDestination()).request()
+        Response serviceProviderFinalResponse = AdminClientUtil.createResteasyClient().target(responseType.getDestination()).request()
                 .post(Entity.entity(os.toByteArray(), "application/vnd.paos+xml"));
 
         Map<String, NewCookie> cookies = serviceProviderFinalResponse.getCookies();
 
-        Invocation.Builder resourceRequest = ClientBuilder.newClient().target(responseType.getDestination()).request();
+        Invocation.Builder resourceRequest = AdminClientUtil.createResteasyClient().target(responseType.getDestination()).request();
 
         for (NewCookie cookie : cookies.values()) {
             resourceRequest.cookie(cookie);
@@ -1670,9 +1666,11 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
         Assert.assertThat(resourceResponse.readEntity(String.class), containsString("pedroigor"));
     }
 
+    @AuthServerContainerExclude(value = AuthServerContainerExclude.AuthServer.QUARKUS, details =
+    "Exclude Quarkus because when running on Java 9+ you get CNF exceptions due to the fact that javax.xml.soap was removed (as well as other JEE modules). Need to discuss how we are going to solve this for both main dist and Quarkus")
     @Test
     public void testInvalidCredentialsEcpFlow() throws Exception {
-        Response authnRequestResponse = ClientBuilder.newClient().target(ecpSPPage.toString()).request()
+        Response authnRequestResponse = AdminClientUtil.createResteasyClient().target(ecpSPPage.toString()).request()
                 .header("Accept", "text/html; application/vnd.paos+xml")
                 .header("PAOS", "ver='urn:liberty:paos:2003-08' ;'urn:oasis:names:tc:SAML:2.0:profiles:SSO:ecp'")
                 .get();
@@ -1710,7 +1708,7 @@ public class SAMLServletAdapterTest extends AbstractSAMLServletAdapterTest {
         String pair = username + ":" + password;
         String authHeader = "Basic " + Base64.encodeBytes(pair.getBytes());
 
-        Response authenticationResponse = ClientBuilder.newClient().target(singleSignOnService).request()
+        Response authenticationResponse = AdminClientUtil.createResteasyClient().target(singleSignOnService).request()
                 .header(HttpHeaders.AUTHORIZATION, authHeader)
                 .post(Entity.entity(DocumentUtil.asString(authenticationRequest), "application/soap+xml"));
 

@@ -64,6 +64,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
 import org.junit.Assume;
 import org.junit.BeforeClass;
 
@@ -102,7 +104,7 @@ public class KcinitTest extends AbstractTestRealmKeycloakTest {
         testingClient.server().run(session -> {
             RealmModel realm = session.realms().getRealmByName("test");
 
-            ClientModel client = session.realms().getClientByClientId("kcinit", realm);
+            ClientModel client = session.clients().getClientByClientId(realm, "kcinit");
             if (client != null) {
                 return;
             }
@@ -630,9 +632,9 @@ public class KcinitTest extends AbstractTestRealmKeycloakTest {
             testingClient.server().run(session -> {
                 RealmModel realm = session.realms().getRealmByName("test");
                 UserModel user = session.users().getUserByUsername("wburke", realm);
-                for (CredentialModel c: session.userCredentialManager().getStoredCredentialsByType(realm, user, OTPCredentialModel.TYPE)){
-                    session.userCredentialManager().removeStoredCredential(realm, user, c.getId());
-                }
+                session.userCredentialManager().getStoredCredentialsByTypeStream(realm, user, OTPCredentialModel.TYPE)
+                        .collect(Collectors.toList())
+                        .forEach(model -> session.userCredentialManager().removeStoredCredential(realm, user, model.getId()));
             });
         }
 

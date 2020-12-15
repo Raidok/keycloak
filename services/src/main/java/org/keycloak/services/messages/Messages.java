@@ -167,6 +167,8 @@ public class Messages {
 
     public static final String IDENTITY_PROVIDER_UNEXPECTED_ERROR = "identityProviderUnexpectedErrorMessage";
 
+    public static final String IDENTITY_PROVIDER_MISSING_STATE_ERROR = "identityProviderMissingStateMessage";
+
     public static final String IDENTITY_PROVIDER_NOT_FOUND = "identityProviderNotFoundMessage";
 
     public static final String IDENTITY_PROVIDER_LINK_SUCCESS = "identityProviderLinkSuccess";
@@ -240,6 +242,16 @@ public class Messages {
     public static final String DELEGATION_FAILED = "delegationFailedMessage";
     public static final String DELEGATION_FAILED_HEADER = "delegationFailedHeader";
 
+    // OAuth 2.0 Device Authorization Grant
+    public static final String OAUTH2_DEVICE_AUTHORIZATION_GRANT_DISABLED = "oauth2DeviceAuthorizationGrantDisabledMessage";
+    public static final String OAUTH2_DEVICE_INVALID_USER_CODE = "oauth2DeviceInvalidUserCodeMessage";
+    public static final String OAUTH2_DEVICE_EXPIRED_USER_CODE = "oauth2DeviceExpiredUserCodeMessage";
+    public static final String OAUTH2_DEVICE_VERIFICATION_COMPLETE = "oauth2DeviceVerificationCompleteMessage";
+    public static final String OAUTH2_DEVICE_VERIFICATION_COMPLETE_HEADER = "oauth2DeviceVerificationCompleteHeader";
+    public static final String OAUTH2_DEVICE_VERIFICATION_FAILED = "oauth2DeviceVerificationFailedMessage";
+    public static final String OAUTH2_DEVICE_VERIFICATION_FAILED_HEADER = "oauth2DeviceVerificationFailedHeader";
+    public static final String OAUTH2_DEVICE_CONSENT_DENIED = "oauth2DeviceConsentDeniedMessage";
+
     // WebAuthn
     public static final String WEBAUTHN_REGISTER_TITLE = "webauthn-registration-title";
     public static final String WEBAUTHN_LOGIN_TITLE = "webauthn-login-title";
@@ -253,13 +265,6 @@ public class Messages {
     public static final String WEBAUTHN_ERROR_REGISTER_VERIFICATION = "webauthn-error-register-verification";
     public static final String WEBAUTHN_ERROR_USER_NOT_FOUND = "webauthn-error-user-not-found";
 
-    // OAuth 2.0 Device Authorization Grant
-    public static final String OAUTH2_DEVICE_AUTHORIZATION_GRANT_DISABLED = "oauth2DeviceAuthorizationGrantDisabledMessage";
-    public static final String OAUTH2_DEVICE_INVALID_USER_CODE = "oauth2DeviceInvalidUserCodeMessage";
-    public static final String OAUTH2_DEVICE_EXPIRED_USER_CODE = "oauth2DeviceExpiredUserCodeMessage";
-    public static final String OAUTH2_DEVICE_VERIFICATION_COMPLETE = "oauth2DeviceVerificationCompleteMessage";
-    public static final String OAUTH2_DEVICE_VERIFICATION_COMPLETE_HEADER = "oauth2DeviceVerificationCompleteHeader";
-    public static final String OAUTH2_DEVICE_VERIFICATION_FAILED = "oauth2DeviceVerificationFailedMessage";
-    public static final String OAUTH2_DEVICE_VERIFICATION_FAILED_HEADER = "oauth2DeviceVerificationFailedHeader";
-    public static final String OAUTH2_DEVICE_CONSENT_DENIED = "oauth2DeviceConsentDeniedMessage";
+    public static final String DELETE_ACCOUNT_LACK_PRIVILEDGES = "deletingAccountForbidden";
+    public static final String DELETE_ACCOUNT_ERROR = "errorDeletingAccount";
 }

@@ -7,6 +7,8 @@ var locale = 'en';
 var module = angular.module('keycloak', [ 'keycloak.services', 'keycloak.loaders', 'ui.bootstrap', 'ui.select2', 'angularFileUpload', 'angularTreeview', 'pascalprecht.translate', 'ngCookies', 'ngSanitize', 'ui.ace']);
 var resourceRequests = 0;
 var loadingTimer = -1;
+var translateProvider = null;
+var currentRealm = null;
 
 angular.element(document).ready(function () {
     var keycloakAuth = new Keycloak(consoleBaseUrl + 'config');
@@ -50,6 +52,28 @@ angular.element(document).ready(function () {
         req.send();
     }
 
+    function loadSelect2Localization() {
+        // 'en' is the built-in default and does not have to be loaded.
+        var supportedLocales = ['ar', 'az', 'bg', 'ca', 'cs', 'da', 'de', 'el', 'es', 'et', 'eu', 'fa', 'fi', 'fr',
+            'gl', 'he', 'hr', 'hu', 'id', 'is', 'it', 'ja', 'ka', 'ko', 'lt', 'lv', 'mk', 'ms', 'nl', 'no', 'pl',
+            'pt-BR', 'pt-PT', 'ro', 'rs', 'ru', 'sk', 'sv', 'th', 'tr', 'ug-CN', 'uk', 'vi', 'zh-CN', 'zh-TW'];
+        if (supportedLocales.indexOf(locale) == -1) return;
+        var select2JsUrl;
+        var allScriptElements = document.getElementsByTagName('script');
+        for (var i = 0, n = allScriptElements.length; i < n; i++) {
+            var src = allScriptElements[i].getAttribute('src');
+            if (src && src.match(/\/select2\/select2\.js$/)) {
+                select2JsUrl = src;
+                break;
+            }
+        }
+        if (!select2JsUrl) return;
+        var scriptElement = document.createElement('script');
+        scriptElement.src = select2JsUrl.replace(/\/select2\/select2\.js$/, '/select2/select2_locale_'+locale+'.js');
+        scriptElement.type = 'text/javascript';
+        document.getElementsByTagName('head')[0].appendChild(scriptElement);
+    }
+
     function hasAnyAccess(user) {
         return user && user['realm_access'];
     }
@@ -58,32 +82,34 @@ angular.element(document).ready(function () {
         location.reload();
     }
 
-    keycloakAuth.init({ onLoad: 'login-required', pkceMethod: 'S256' }).success(function () {
+    auth.refreshPermissions = function(success, error) {
+        whoAmI(function(data) {
+            auth.user = data;
+            auth.loggedIn = true;
+            auth.hasAnyAccess = hasAnyAccess(data);
+
+            success();
+        }, function() {
+            error();
+        });
+    };
+
+    module.factory('Auth', function () {
+        return auth;
+    });
+
+    keycloakAuth.init({ onLoad: 'login-required', pkceMethod: 'S256' }).then(function () {
         auth.authz = keycloakAuth;
 
-        if (auth.authz.idTokenParsed.locale) {
-            locale = auth.authz.idTokenParsed.locale;
-        }
+        whoAmI(function(data) {
+            auth.user = data;
+            auth.loggedIn = true;
+            auth.hasAnyAccess = hasAnyAccess(data);
+            locale = auth.user.locale || locale;
 
-        auth.refreshPermissions = function(success, error) {
-            whoAmI(function(data) {
-                auth.user = data;
-                auth.loggedIn = true;
-                auth.hasAnyAccess = hasAnyAccess(data);
+            loadResourceBundle(function(data) {
+                resourceBundle = data;
 
-                success();
-            }, function() {
-                error();
-            });
-        };
-
-        loadResourceBundle(function(data) {
-            resourceBundle = data;
-
-            auth.refreshPermissions(function () {
-                module.factory('Auth', function () {
-                    return auth;
-                });
                 var injector = angular.bootstrap(document, ["keycloak"]);
 
                 injector.get('$translate')('consoleTitle').then(function (consoleTitle) {
@@ -91,7 +117,9 @@ angular.element(document).ready(function () {
                 });
             });
         });
-    }).error(function () {
+
+        loadSelect2Localization();
+    }).catch(function () {
         window.location.reload();
     });
 });
@@ -102,12 +130,12 @@ module.factory('authInterceptor', function($q, Auth) {
             if (!config.url.match(/.html$/)) {
                 var deferred = $q.defer();
                 if (Auth.authz.token) {
-                    Auth.authz.updateToken(5).success(function () {
+                    Auth.authz.updateToken(5).then(function () {
                         config.headers = config.headers || {};
                         config.headers.Authorization = 'Bearer ' + Auth.authz.token;
 
                         deferred.resolve(config);
-                    }).error(function () {
+                    }).catch(function () {
                         location.reload();
                     });
                 }
@@ -120,6 +148,7 @@ module.factory('authInterceptor', function($q, Auth) {
 });
 
 module.config(['$translateProvider', function($translateProvider) {
+    translateProvider = $translateProvider;
     $translateProvider.useSanitizeValueStrategy('sanitizeParameters');
     $translateProvider.preferredLanguage(locale);
     $translateProvider.translations(locale, resourceBundle);
@@ -151,6 +180,33 @@ module.config([ '$routeProvider', function($routeProvider) {
                 }
             },
             controller : 'RealmDetailCtrl'
+        })
+        .when('/realms/:realm/localization', {
+            templateUrl : resourceUrl + '/partials/realm-localization.html',
+            resolve : {
+                realm : function(RealmLoader) {
+                    return RealmLoader();
+                },
+                serverInfo : function(ServerInfoLoader) {
+                    return ServerInfoLoader();
+                },
+                realmSpecificLocales : function(RealmSpecificLocalesLoader) {
+                    return RealmSpecificLocalesLoader();
+                }
+            },
+            controller : 'RealmLocalizationCtrl'
+        })
+        .when('/realms/:realm/localization/upload', {
+            templateUrl : resourceUrl + '/partials/realm-localization-upload.html',
+            resolve : {
+                realm : function(RealmLoader) {
+                    return RealmLoader();
+                },
+                serverInfo : function(ServerInfoLoader) {
+                    return ServerInfoLoader();
+                }
+            },
+            controller : 'RealmLocalizationUploadCtrl'
         })
         .when('/realms/:realm/login-settings', {
             templateUrl : resourceUrl + '/partials/realm-login-settings.html',
@@ -2058,6 +2114,42 @@ module.config([ '$routeProvider', function($routeProvider) {
                 }
             },
             controller : 'AuthenticationConfigCreateCtrl'
+        })
+        .when('/create/localization/:realm/:locale', {
+            templateUrl : resourceUrl + '/partials/realm-localization-detail.html',
+            resolve : {
+                realm : function(RealmLoader) {
+                    return RealmLoader();
+                },
+                locale: function($route) {
+                    return $route.current.params.locale;
+                },
+                key: function() {
+                    return null
+                },
+                localizationText : function() {
+                    return null;
+                }
+            },
+            controller : 'RealmLocalizationDetailCtrl'
+        })
+        .when('/realms/:realm/localization/:locale/:key', {
+            templateUrl : resourceUrl + '/partials/realm-localization-detail.html',
+            resolve : {
+                realm : function(RealmLoader) {
+                    return RealmLoader();
+                },
+                locale: function($route) {
+                    return $route.current.params.locale;
+                },
+                key: function($route) {
+                    return $route.current.params.key;
+                },
+                localizationText : function(RealmSpecificlocalizationTextLoader) {
+                    return RealmSpecificlocalizationTextLoader();
+                }
+            },
+            controller : 'RealmLocalizationDetailCtrl'
         })
         .when('/server-info', {
             templateUrl : resourceUrl + '/partials/server-info.html',

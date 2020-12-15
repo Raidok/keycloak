@@ -39,12 +39,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import javax.ws.rs.BadRequestException;
+import javax.ws.rs.ClientErrorException;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import org.keycloak.testsuite.util.RoleBuilder;
 
 /**
  * @author Stan Silvert ssilvert@redhat.com (C) 2016 Red Hat Inc.
@@ -88,11 +89,12 @@ public class ClientRolesTest extends AbstractClientTest {
         assertAdminEvents.assertEvent(getRealmId(), OperationType.CREATE, AdminEventPaths.clientRoleResourcePath(clientDbId, "role1"), role1, ResourceType.CLIENT_ROLE);
         assertTrue(hasRole(rolesRsc, "role1"));
     }
-    
-    @Test(expected = BadRequestException.class)
-    public void testAddRoleWithReservedCharacter() {
-        RoleRepresentation role1 = makeRole("r&ole1");
-        rolesRsc.create(role1);
+
+    @Test(expected = ClientErrorException.class)
+    public void createRoleWithSameName() {
+        RoleRepresentation role = RoleBuilder.create().name("role-a").build();
+        rolesRsc.create(role);
+        rolesRsc.create(role);
     }
 
     @Test

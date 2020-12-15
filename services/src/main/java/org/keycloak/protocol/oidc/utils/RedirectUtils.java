@@ -28,10 +28,10 @@ import org.keycloak.services.Urls;
 import org.keycloak.services.util.ResolveRelative;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * @author <a href="mailto:sthorger@redhat.com">Stian Thorgersen</a>
@@ -71,13 +71,11 @@ public class RedirectUtils {
     }
 
     private static Set<String> getValidateRedirectUris(KeycloakSession session) {
-        Set<String> redirects = new HashSet<>();
-        for (ClientModel client : session.getContext().getRealm().getClients()) {
-            if (client.isEnabled()) {
-                redirects.addAll(resolveValidRedirects(session, client.getRootUrl(), client.getRedirectUris()));
-            }
-        }
-        return redirects;
+        return session.getContext().getRealm().getClientsStream()
+                .filter(ClientModel::isEnabled)
+                .map(c -> resolveValidRedirects(session, c.getRootUrl(), c.getRedirectUris()))
+                .flatMap(Collection::stream)
+                .collect(Collectors.toSet());
     }
 
     private static String verifyRedirectUri(KeycloakSession session, String rootUrl, String redirectUri, Set<String> validRedirects, boolean requireRedirectUri) {
@@ -117,7 +115,7 @@ public class RedirectUtils {
 
             boolean valid = matchesRedirects(resolveValidRedirects, r);
 
-            if (!valid && r.startsWith(Constants.INSTALLED_APP_URL) && r.indexOf(':', Constants.INSTALLED_APP_URL.length()) >= 0) {
+            if (!valid && (r.startsWith(Constants.INSTALLED_APP_URL) || r.startsWith(Constants.INSTALLED_APP_LOOPBACK)) && r.indexOf(':', Constants.INSTALLED_APP_URL.length()) >= 0) {
                 int i = r.indexOf(':', Constants.INSTALLED_APP_URL.length());
 
                 StringBuilder sb = new StringBuilder();
@@ -189,10 +187,26 @@ public class RedirectUtils {
     private static String getSingleValidRedirectUri(Collection<String> validRedirects) {
         if (validRedirects.size() != 1) return null;
         String validRedirect = validRedirects.iterator().next();
-        int idx = validRedirect.indexOf("/*");
+        return validateRedirectUriWildcard(validRedirect);
+    }
+
+    public static String validateRedirectUriWildcard(String redirectUri) {
+        if (redirectUri == null)
+            return null;
+
+        int idx = redirectUri.indexOf("/*");
         if (idx > -1) {
-            validRedirect = validRedirect.substring(0, idx);
+            redirectUri = redirectUri.substring(0, idx);
         }
-        return validRedirect;
+        return redirectUri;
+    }
+
+    private static String getFirstValidRedirectUri(Collection<String> validRedirects) {
+        final String redirectUri = validRedirects.stream().findFirst().orElse(null);
+        return (redirectUri != null) ? validateRedirectUriWildcard(redirectUri) : null;
+    }
+
+    public static String getFirstValidRedirectUri(KeycloakSession session, String rootUrl, Set<String> validRedirects) {
+        return getFirstValidRedirectUri(resolveValidRedirects(session, rootUrl, validRedirects));
     }
 }
