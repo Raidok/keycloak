@@ -870,6 +870,7 @@ public class LoginActionsService {
         ResteasyProviderFactory.getInstance().injectProperties(endpoint);
 
         AuthenticationSessionModel authSessionWithSystemClient = checks.getAuthenticationSession();
+        processLocaleParam(authSessionWithSystemClient);
         String userCode = formData.getFirst(OAUTH2_DEVICE_USER_CODE);
         return endpoint.processVerification(authSessionWithSystemClient, userCode);
     }
