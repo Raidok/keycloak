@@ -104,6 +104,8 @@ public interface Errors {
     String EXPIRED_OAUTH2_DEVICE_CODE = "expired_oauth2_device_code";
     String INVALID_OAUTH2_USER_CODE = "invalid_oauth2_user_code";
     String EXPIRED_OAUTH2_USER_CODE = "expired_oauth2_user_code";
-    String ACCESS_DENIED = "access_denied";
     String SLOW_DOWN = "slow_down";
+    String INVALID_PERMISSION_TICKET = "invalid_permission_ticket";
+    String ACCESS_DENIED = "access_denied";
+
 }

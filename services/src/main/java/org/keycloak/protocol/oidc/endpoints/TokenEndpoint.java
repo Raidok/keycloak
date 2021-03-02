@@ -69,7 +69,7 @@ import org.keycloak.protocol.oidc.OIDCAdvancedConfigWrapper;
 import org.keycloak.protocol.oidc.OIDCLoginProtocol;
 import org.keycloak.protocol.oidc.TokenManager;
 import org.keycloak.protocol.oidc.utils.AuthorizeClientUtil;
-import org.keycloak.provider.ProviderFactory;
+import org.keycloak.protocol.oidc.utils.PkceUtils;
 import org.keycloak.protocol.saml.JaxrsSAML2BindingBuilder;
 import org.keycloak.protocol.saml.SamlClient;
 import org.keycloak.protocol.saml.SamlProtocol;
@@ -88,8 +88,8 @@ import org.keycloak.services.CorsErrorResponseException;
 import org.keycloak.services.ServicesLogger;
 import org.keycloak.services.Urls;
 import org.keycloak.services.clientpolicy.ClientPolicyException;
-import org.keycloak.services.clientpolicy.TokenRefreshContext;
-import org.keycloak.services.clientpolicy.TokenRequestContext;
+import org.keycloak.services.clientpolicy.context.TokenRefreshContext;
+import org.keycloak.services.clientpolicy.context.TokenRequestContext;
 import org.keycloak.services.managers.AppAuthManager;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.AuthenticationSessionManager;
@@ -126,7 +126,6 @@ import javax.ws.rs.core.Response;
 import javax.ws.rs.core.Response.Status;
 import javax.xml.namespace.QName;
 import java.io.IOException;
-import java.security.MessageDigest;
 
 import java.util.List;
 import java.util.Map;
@@ -217,6 +216,7 @@ public class TokenEndpoint {
 
         if (!action.equals(Action.PERMISSION)) {
             checkClient();
+            checkParameterDuplicated();
         }
 
         switch (action) {
@@ -314,6 +314,15 @@ public class TokenEndpoint {
         }
 
         event.detail(Details.GRANT_TYPE, grantType);
+    }
+
+    private void checkParameterDuplicated() {
+        for (String key : formParams.keySet()) {
+            if (formParams.get(key).size() != 1) {
+                throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_REQUEST, "duplicated parameter",
+                    Response.Status.BAD_REQUEST);
+            }
+        }
     }
 
     public Response codeToToken() {
@@ -520,7 +529,7 @@ public class TokenEndpoint {
             // plain or S256
             if (codeChallengeMethod != null && codeChallengeMethod.equals(OAuth2Constants.PKCE_METHOD_S256)) {
                 logger.debugf("PKCE codeChallengeMethod = %s", codeChallengeMethod);
-                codeVerifierEncoded = generateS256CodeChallenge(codeVerifier);
+                codeVerifierEncoded = PkceUtils.generateS256CodeChallenge(codeVerifier);
             } else {
                 logger.debug("PKCE codeChallengeMethod is plain");
                 codeVerifierEncoded = codeVerifier;
@@ -549,7 +558,7 @@ public class TokenEndpoint {
             session.clientPolicy().triggerOnEvent(new TokenRefreshContext(formParams));
         } catch (ClientPolicyException cpe) {
             event.error(cpe.getError());
-            throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_GRANT, cpe.getErrorDetail(), Response.Status.BAD_REQUEST);
+            throw new CorsErrorResponseException(cors, cpe.getError(), cpe.getErrorDetail(), cpe.getErrorStatus());
         }
 
         AccessTokenResponse res;
@@ -844,9 +853,9 @@ public class TokenEndpoint {
         String requestedSubject = formParams.getFirst(OAuth2Constants.REQUESTED_SUBJECT);
         if (requestedSubject != null) {
             event.detail(Details.REQUESTED_SUBJECT, requestedSubject);
-            UserModel requestedUser = session.users().getUserByUsername(requestedSubject, realm);
+            UserModel requestedUser = session.users().getUserByUsername(realm, requestedSubject);
             if (requestedUser == null) {
-                requestedUser = session.users().getUserById(requestedSubject, realm);
+                requestedUser = session.users().getUserById(realm, requestedSubject);
             }
 
             if (requestedUser == null) {
@@ -1145,7 +1154,7 @@ public class TokenEndpoint {
         FederatedIdentityModel federatedIdentityModel = new FederatedIdentityModel(providerId, context.getId(),
                 context.getUsername(), context.getToken());
 
-        UserModel user = this.session.users().getUserByFederatedIdentity(federatedIdentityModel, realm);
+        UserModel user = this.session.users().getUserByFederatedIdentity(realm, federatedIdentityModel);
 
         if (user == null) {
 
@@ -1164,14 +1173,14 @@ public class TokenEndpoint {
             username = username.trim();
             context.setModelUsername(username);
             if (context.getEmail() != null && !realm.isDuplicateEmailsAllowed()) {
-                UserModel existingUser = session.users().getUserByEmail(context.getEmail(), realm);
+                UserModel existingUser = session.users().getUserByEmail(realm, context.getEmail());
                 if (existingUser != null) {
                     event.error(Errors.FEDERATED_IDENTITY_EXISTS);
                     throw new CorsErrorResponseException(cors, Errors.INVALID_TOKEN, "User already exists", Response.Status.BAD_REQUEST);
                 }
             }
 
-            UserModel existingUser = session.users().getUserByUsername(username, realm);
+            UserModel existingUser = session.users().getUserByUsername(realm, username);
             if (existingUser != null) {
                 event.error(Errors.FEDERATED_IDENTITY_EXISTS);
                 throw new CorsErrorResponseException(cors, Errors.INVALID_TOKEN, "User already exists", Response.Status.BAD_REQUEST);
@@ -1244,8 +1253,10 @@ public class TokenEndpoint {
                     AccessToken invalidToken = new JWSInput(accessTokenString).readJsonContent(AccessToken.class);
                     ClientModel client = realm.getClientByClientId(invalidToken.getIssuedFor());
                     cors.allowedOrigins(session, client);
+                    event.client(client);
                 } catch (JWSInputException ignore) {
                 }
+                event.error(Errors.INVALID_TOKEN);
                 throw new CorsErrorResponseException(cors, OAuthErrorException.INVALID_GRANT, "Invalid bearer token", Status.UNAUTHORIZED);
             }
 
@@ -1254,6 +1265,7 @@ public class TokenEndpoint {
             session.getContext().setClient(client);
 
             cors.allowedOrigins(session, client);
+            event.client(client);
         }
 
         String claimToken = null;
@@ -1300,6 +1312,7 @@ public class TokenEndpoint {
         if (rpt != null) {
             AccessToken accessToken = session.tokens().decode(rpt, AccessToken.class);
             if (accessToken == null) {
+                event.error(Errors.INVALID_REQUEST);
                 throw new CorsErrorResponseException(cors, "invalid_rpt", "RPT signature is invalid", Status.FORBIDDEN);
             }
 
@@ -1307,8 +1320,11 @@ public class TokenEndpoint {
         }
 
         authorizationRequest.setScope(formParams.getFirst("scope"));
-        authorizationRequest.setAudience(formParams.getFirst("audience"));
+        String audienceParam = formParams.getFirst("audience");
+        authorizationRequest.setAudience(audienceParam);
         authorizationRequest.setSubjectToken(accessTokenString);
+
+        event.detail(Details.AUDIENCE, audienceParam);
 
         String submitRequest = formParams.getFirst("submit_request");
 
@@ -1318,6 +1334,7 @@ public class TokenEndpoint {
         List<String> permissions = formParams.get("permission");
 
         if (permissions != null) {
+            event.detail(Details.PERMISSION, String.join("|", permissions));
             for (String permission : permissions) {
                 String[] parts = permission.split("#");
                 String resource = parts[0];
@@ -1349,7 +1366,11 @@ public class TokenEndpoint {
 
         authorizationRequest.setMetadata(metadata);
 
-        return AuthorizationTokenService.instance().authorize(authorizationRequest);
+        Response authorizationResponse = AuthorizationTokenService.instance().authorize(authorizationRequest);
+
+        event.success();
+
+        return authorizationResponse;
     }
 
     public Response oauth2DeviceCodeToToken() {
@@ -1497,16 +1518,8 @@ public class TokenEndpoint {
         return m.matches();
     }
 
-    // https://tools.ietf.org/html/rfc7636#section-4.6
-    private String generateS256CodeChallenge(String codeVerifier) throws Exception {
-        MessageDigest md = MessageDigest.getInstance("SHA-256");
-        md.update(codeVerifier.getBytes("ISO_8859_1"));
-        byte[] digestBytes = md.digest();
-        String codeVerifierEncoded = Base64Url.encode(digestBytes);
-        return codeVerifierEncoded;
-    }
-
     private static class TokenExchangeSamlProtocol extends SamlProtocol {
+
         final SamlClient samlClient;
 
         TokenExchangeSamlProtocol(SamlClient samlClient) {

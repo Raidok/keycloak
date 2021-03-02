@@ -46,7 +46,7 @@ import org.keycloak.representations.RefreshToken;
 import org.keycloak.services.ErrorPage;
 import org.keycloak.services.ErrorResponseException;
 import org.keycloak.services.clientpolicy.ClientPolicyException;
-import org.keycloak.services.clientpolicy.LogoutRequestContext;
+import org.keycloak.services.clientpolicy.context.LogoutRequestContext;
 import org.keycloak.services.managers.AuthenticationManager;
 import org.keycloak.services.managers.UserSessionManager;
 import org.keycloak.services.messages.Messages;
@@ -65,8 +65,8 @@ import javax.ws.rs.core.MediaType;
 import javax.ws.rs.core.MultivaluedMap;
 import javax.ws.rs.core.Response;
 import javax.ws.rs.core.UriBuilder;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static org.keycloak.models.UserSessionModel.State.LOGGED_OUT;
@@ -212,7 +212,7 @@ public class LogoutEndpoint {
         try {
             session.clientPolicy().triggerOnEvent(new LogoutRequestContext(form));
         } catch (ClientPolicyException cpe) {
-            throw new ErrorResponseException(Errors.INVALID_REQUEST, cpe.getErrorDetail(), Response.Status.BAD_REQUEST);
+            throw new ErrorResponseException(cpe.getError(), cpe.getErrorDetail(), cpe.getErrorStatus());
         }
 
         RefreshToken token = null;
@@ -356,34 +356,29 @@ public class LogoutEndpoint {
         BackchannelLogoutResponse backchannelLogoutResponse = new BackchannelLogoutResponse();
         backchannelLogoutResponse.setLocalLogoutSucceeded(true);
         identityProviderAliases.forEach(identityProviderAlias -> {
-            List<UserSessionModel> userSessions = session.sessions().getUserSessionByBrokerUserId(realm,
-                    identityProviderAlias + "." + federatedUserId);
 
             if (logoutOfflineSessions) {
                 logoutOfflineUserSessions(identityProviderAlias + "." + federatedUserId);
             }
 
-            for (UserSessionModel userSession : userSessions) {
-                BackchannelLogoutResponse userBackchannelLogoutResponse;
-                userBackchannelLogoutResponse = logoutUserSession(userSession);
-                backchannelLogoutResponse.setLocalLogoutSucceeded(backchannelLogoutResponse.getLocalLogoutSucceeded()
-                        && userBackchannelLogoutResponse.getLocalLogoutSucceeded());
-                userBackchannelLogoutResponse.getClientResponses()
-                        .forEach(backchannelLogoutResponse::addClientResponses);
-            }
+            session.sessions().getUserSessionByBrokerUserIdStream(realm, identityProviderAlias + "." + federatedUserId)
+                    .collect(Collectors.toList()) // collect to avoid concurrent modification as backchannelLogout removes the user sessions.
+                    .forEach(userSession -> {
+                        BackchannelLogoutResponse userBackchannelLogoutResponse = this.logoutUserSession(userSession);
+                        backchannelLogoutResponse.setLocalLogoutSucceeded(backchannelLogoutResponse.getLocalLogoutSucceeded()
+                                && userBackchannelLogoutResponse.getLocalLogoutSucceeded());
+                        userBackchannelLogoutResponse.getClientResponses()
+                                .forEach(backchannelLogoutResponse::addClientResponses);
+                    });
         });
 
         return backchannelLogoutResponse;
     }
 
     private void logoutOfflineUserSessions(String brokerUserId) {
-        List<UserSessionModel> offlineUserSessions =
-                session.sessions().getOfflineUserSessionByBrokerUserId(realm, brokerUserId);
-
         UserSessionManager userSessionManager = new UserSessionManager(session);
-        for (UserSessionModel offlineUserSession : offlineUserSessions) {
-            userSessionManager.revokeOfflineUserSession(offlineUserSession);
-        }
+        session.sessions().getOfflineUserSessionByBrokerUserIdStream(realm, brokerUserId).collect(Collectors.toList())
+                .forEach(userSessionManager::revokeOfflineUserSession);
     }
 
     private BackchannelLogoutResponse logoutUserSession(UserSessionModel userSession) {
